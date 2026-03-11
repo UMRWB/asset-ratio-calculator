@@ -172,8 +172,10 @@ def fetch_pair_data(etf_ticker, spot_ticker, days=30):
     spot_df = yf.download(spot_ticker, start=start, end=end, interval="1h", progress=False, auto_adjust=True)
     time.sleep(0.5)
 
+    st.write(etf_df)
+    st.write(spot_df)
+
     if etf_df.empty or spot_df.empty:
-        print("empty")
         return pd.DataFrame()
 
     # Flatten multi-index columns if present
@@ -194,10 +196,11 @@ def fetch_pair_data(etf_ticker, spot_ticker, days=30):
     # Inner join: only keep timestamps where BOTH instruments have data
     merged = etf_close.join(spot_close, how="inner").dropna()
 
+    st.write(merged)
+
     if merged.empty:
-        print("merged empty")
         return pd.DataFrame()
-    print(merged.head())
+    
     merged["Ratio"] = merged["ETF_Close"] / merged["Spot_Close"]
     return merged
 
