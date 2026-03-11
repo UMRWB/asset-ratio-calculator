@@ -127,7 +127,7 @@ div[data-testid="stDecoration"] {display: none;}
 PAIRS = {
     "GLD / XAUUSD": {
         "etf": "GLD",
-        "spot": "GC=F",
+        "spot": "XAUUSD=X",
         "spot_label": "XAUUSD",
         "accent": "gold",
         "color": "#fbbf24",
@@ -135,7 +135,7 @@ PAIRS = {
     },
     "SLV / XAGUSD": {
         "etf": "SLV",
-        "spot": "SI=F",
+        "spot": "XAGUSD=X",
         "spot_label": "XAGUSD",
         "accent": "silver",
         "color": "#94a3b8",
@@ -387,7 +387,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 st.markdown("""
 <div style="text-align:center; color:#4b5563; font-size:0.75rem; padding:1rem 0;">
     Data via Yahoo Finance. Ratios computed on overlapping market hours only.<br>
-    Gold/Silver spot proxied by front-month futures (GC=F, SI=F). Crypto spot via BTC-USD, ETH-USD.<br>
+    Gold/Silver spot via XAUUSD=X, XAGUSD=X. Crypto spot via BTC-USD, ETH-USD.<br>
     Prices refresh every 5 minutes. Not financial advice.
 </div>
 """, unsafe_allow_html=True)
