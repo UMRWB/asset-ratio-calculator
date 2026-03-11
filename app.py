@@ -175,8 +175,8 @@ def fetch_pair_data(etf_ticker, spot_ticker, days=30):
     time.sleep(1)
     spot = yf.Ticker(spot_ticker)
     time.sleep(1)
-    etf_df = etf.history(start=start, end=end, interval="1m")
-    spot_df = spot.history(start=start, end=end, interval="1m")
+    etf_df = etf.history(start=start, end=end, interval="5m")
+    spot_df = spot.history(start=start, end=end, interval="5m")
     
 
     st.write(etf_df)
@@ -219,8 +219,8 @@ def get_latest_prices(etf_ticker, spot_ticker):
     time.sleep(1)
     spot = yf.Ticker(spot_ticker)
     time.sleep(1)
-    etf_hist = etf.history(period="5d", interval="1m")
-    spot_hist = spot.history(period="5d", interval="1m")
+    etf_hist = etf.history(period="5d", interval="5m")
+    spot_hist = spot.history(period="5d", interval="5m")
 
     if isinstance(etf_hist.columns, pd.MultiIndex):
         etf_hist.columns = etf_hist.columns.get_level_values(0)
