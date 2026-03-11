@@ -168,8 +168,14 @@ def fetch_pair_data(etf_ticker, spot_ticker, days=30):
     end = datetime.now(pytz.timezone("US/Eastern"))
     start = end - timedelta(days=days)
 
-    etf_df = yf.download(etf_ticker, start=start, end=end, interval="1m", progress=False, auto_adjust=True)
-    spot_df = yf.download(spot_ticker, start=start, end=end, interval="1m", progress=False, auto_adjust=True)
+    #etf_df = yf.download(etf_ticker, start=start, end=end, interval="1m", progress=False, auto_adjust=True)
+    #spot_df = yf.download(spot_ticker, start=start, end=end, interval="1m", progress=False, auto_adjust=True)
+
+    etf = yf.Ticker(etf_ticker)
+    spot = yf.Ticker(spot_ticker)
+    etf_df = etf.history(start=start, end=end, interval="1m")
+    spot_df = spot.history(start=start, end=end, interval="1m")
+    
     time.sleep(1)
 
     st.write(etf_df)
@@ -308,7 +314,7 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
             x=df.index, y=df["Ratio"],
             name="Ratio", fill="tozeroy",
             line=dict(color=cfg["color"], width=2),
-            fillcolor=cfg["color"].replace(")", ",0.1)").replace("rgb", "rgba") if "rgb" in cfg["color"] else f"{cfg['color']}1a",
+            # fillcolor=cfg["color"].replace(")", ",0.1)").replace("rgb", "rgba") if "rgb" in cfg["color"] else f"{cfg['color']}1a",
             hovertemplate="%{x}<br>Ratio: %{y:.6f}<extra></extra>"
         ), row=2, col=1)
 
