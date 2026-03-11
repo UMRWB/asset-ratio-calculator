@@ -264,7 +264,7 @@ for i, (name, cfg) in enumerate(PAIRS.items()):
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ─── Charts ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">📈 Ratio History (Hourly, Overlapping Hours Only)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📈 Ratio History (Overlapping Hours Only)</div>', unsafe_allow_html=True)
 
 period_options = {"7 Days": 7, "14 Days": 14, "30 Days": 30}
 selected_period = st.radio("Lookback", list(period_options.keys()), horizontal=True, index=2, label_visibility="collapsed")
@@ -280,49 +280,101 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
             st.warning(f"No overlapping data found for {name}.")
             continue
 
+        # ── Normalize prices to % change from first data point ──
+        etf_base = df["ETF_Close"].iloc[0]
+        spot_base = df["Spot_Close"].iloc[0]
+        df["ETF_Pct"] = (df["ETF_Close"] / etf_base - 1) * 100
+        df["Spot_Pct"] = (df["Spot_Close"] / spot_base - 1) * 100
+
         fig = make_subplots(
             rows=2, cols=1,
             shared_xaxes=True,
-            vertical_spacing=0.08,
-            row_heights=[0.55, 0.45],
-            subplot_titles=[f"{cfg['etf']} vs {cfg['spot_label']} Prices", "Conversion Ratio"]
+            vertical_spacing=0.10,
+            row_heights=[0.50, 0.50],
+            subplot_titles=[
+                f"{cfg['etf']} vs {cfg['spot_label']} — Normalized % Change",
+                "Conversion Ratio (Zoomed)"
+            ]
         )
 
-        # Price traces
+        # ── Price chart: plot % change, but show original $ on hover ──
         fig.add_trace(go.Scatter(
-            x=df.index, y=df["ETF_Close"],
-            name=cfg["etf"], line=dict(color=cfg["color"], width=2),
-            hovertemplate="%{x}<br>" + cfg["etf"] + ": $%{y:.2f}<extra></extra>"
+            x=df.index, y=df["ETF_Pct"],
+            name=cfg["etf"],
+            line=dict(color=cfg["color"], width=2),
+            customdata=df["ETF_Close"],
+            hovertemplate=(
+                "%{x}<br>"
+                + cfg["etf"] + ": <b>$%{customdata:.2f}</b> (%{y:+.2f}%)"
+                + "<extra></extra>"
+            )
         ), row=1, col=1)
 
         fig.add_trace(go.Scatter(
-            x=df.index, y=df["Spot_Close"],
-            name=cfg["spot_label"], line=dict(color="#64748b", width=2),
-            yaxis="y2",
-            hovertemplate="%{x}<br>" + cfg["spot_label"] + ": $%{y:.2f}<extra></extra>"
+            x=df.index, y=df["Spot_Pct"],
+            name=cfg["spot_label"],
+            line=dict(color="#64748b", width=2),
+            customdata=df["Spot_Close"],
+            hovertemplate=(
+                "%{x}<br>"
+                + cfg["spot_label"] + ": <b>$%{customdata:.2f}</b> (%{y:+.2f}%)"
+                + "<extra></extra>"
+            )
         ), row=1, col=1)
 
-        # Ratio trace
+        # Zero reference line for % chart
+        fig.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.15)", row=1, col=1)
+
+        # ── Ratio chart: zoomed in, no fill-to-zero ──
         fig.add_trace(go.Scatter(
             x=df.index, y=df["Ratio"],
-            name="Ratio", fill="tozeroy",
+            name="Ratio",
             line=dict(color=cfg["color"], width=2),
-            # fillcolor=cfg["color"].replace(")", ",0.1)").replace("rgb", "rgba") if "rgb" in cfg["color"] else f"{cfg['color']}1a",
+            fill="tonexty" if False else None,  # no fill
             hovertemplate="%{x}<br>Ratio: %{y:.6f}<extra></extra>"
         ), row=2, col=1)
 
-        # Mean ratio line
+        # Mean, min, max ratio lines
         mean_ratio = df["Ratio"].mean()
+        ratio_min = df["Ratio"].min()
+        ratio_max = df["Ratio"].max()
+
         fig.add_hline(y=mean_ratio, line_dash="dash", line_color="#4b5563",
                       annotation_text=f"Mean: {mean_ratio:.6f}",
-                      annotation_font_color="#6b7280", row=2, col=1)
+                      annotation_font_color="#6b7280",
+                      annotation_font_size=10, row=2, col=1)
+
+        # Zoom the ratio y-axis: pad 20% above and below the data range
+        ratio_range_span = ratio_max - ratio_min
+        ratio_pad = max(ratio_range_span * 0.20, 1e-7)
+        fig.update_yaxes(
+            range=[ratio_min - ratio_pad, ratio_max + ratio_pad],
+            row=2, col=1
+        )
+
+        # Add a subtle shaded band between min and max on ratio chart
+        fig.add_trace(go.Scatter(
+            x=df.index, y=[ratio_max] * len(df),
+            mode="lines", line=dict(width=0),
+            showlegend=False, hoverinfo="skip"
+        ), row=2, col=1)
+        fig.add_trace(go.Scatter(
+            x=df.index, y=[ratio_min] * len(df),
+            mode="lines", line=dict(width=0),
+            fill="tonexty", fillcolor="rgba(255,255,255,0.03)",
+            showlegend=False, hoverinfo="skip"
+        ), row=2, col=1)
+
+        # Y-axis label for % chart
+        fig.update_yaxes(title_text="% Change", row=1, col=1)
+        fig.update_yaxes(title_text="Ratio", row=2, col=1)
 
         fig.update_layout(
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            height=550,
-            margin=dict(l=60, r=20, t=40, b=40),
+            height=650,
+            margin=dict(l=70, r=20, t=40, b=40),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
                         font=dict(size=11, color="#94a3b8")),
             font=dict(family="Inter", color="#94a3b8"),
@@ -331,19 +383,54 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
         fig.update_xaxes(gridcolor="rgba(255,255,255,0.04)", zeroline=False)
         fig.update_yaxes(gridcolor="rgba(255,255,255,0.04)", zeroline=False)
 
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
 
         # Stats row
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Current Ratio", f"{df['Ratio'].iloc[-1]:.6f}")
+        c1.metric("Latest Ratio", f"{df['Ratio'].iloc[-1]:.6f}")
         c2.metric("Mean", f"{mean_ratio:.6f}")
-        c3.metric("Min", f"{df['Ratio'].min():.6f}")
-        c4.metric("Max", f"{df['Ratio'].max():.6f}")
+        c3.metric("Min", f"{ratio_min:.6f}")
+        c4.metric("Max", f"{ratio_max:.6f}")
 
 # ─── Converter ─────────────────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
 st.markdown('<div class="section-title">🔄 Price Converter</div>', unsafe_allow_html=True)
-st.caption("Convert between ETF and spot prices using the current ratio.")
+st.caption("Convert between ETF and spot prices using your chosen ratio method.")
+
+# ── Ratio method selector (shared across both converters) ──
+RATIO_METHODS = {
+    "Latest (overlapping)": "latest",
+    "Mean": "mean",
+    "Min": "min",
+    "Max": "max",
+}
+
+ratio_method_label = st.radio(
+    "Ratio method",
+    list(RATIO_METHODS.keys()),
+    horizontal=True,
+    index=0,
+    help="**Latest (overlapping)**: last ratio when both ETF & spot were open simultaneously. "
+         "**Mean/Min/Max**: statistics over the selected lookback period."
+)
+ratio_method = RATIO_METHODS[ratio_method_label]
+
+
+def get_ratio_for_pair(pair_name, method):
+    """Return the ratio for a pair based on the chosen method, using overlapping data only."""
+    df = all_data[pair_name]
+    if df.empty:
+        return None
+    if method == "latest":
+        return float(df["Ratio"].iloc[-1])
+    elif method == "mean":
+        return float(df["Ratio"].mean())
+    elif method == "min":
+        return float(df["Ratio"].min())
+    elif method == "max":
+        return float(df["Ratio"].max())
+    return None
+
 
 conv_col1, conv_col2 = st.columns(2, gap="large")
 
@@ -353,7 +440,7 @@ with conv_col1:
     pair_choice_1 = st.selectbox("Pair", list(PAIRS.keys()), key="conv1_pair", label_visibility="collapsed")
     cfg1 = PAIRS[pair_choice_1]
     etf_p1, spot_p1 = latest[pair_choice_1]
-    ratio1 = etf_p1 / spot_p1 if (etf_p1 and spot_p1) else 0
+    ratio1 = get_ratio_for_pair(pair_choice_1, ratio_method)
 
     spot_input = st.number_input(
         f"Enter {cfg1['spot_label']} price",
@@ -365,7 +452,9 @@ with conv_col1:
     if ratio1:
         converted_etf = spot_input * ratio1
         st.success(f"**{cfg1['etf']} ≈ ${converted_etf:,.4f}**")
-        st.caption(f"Using ratio: {ratio1:.6f}")
+        st.caption(f"Using {ratio_method_label.lower()} ratio: {ratio1:.6f}")
+    else:
+        st.warning("No overlapping data available to compute ratio.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with conv_col2:
@@ -374,7 +463,7 @@ with conv_col2:
     pair_choice_2 = st.selectbox("Pair", list(PAIRS.keys()), key="conv2_pair", label_visibility="collapsed")
     cfg2 = PAIRS[pair_choice_2]
     etf_p2, spot_p2 = latest[pair_choice_2]
-    ratio2 = etf_p2 / spot_p2 if (etf_p2 and spot_p2) else 0
+    ratio2 = get_ratio_for_pair(pair_choice_2, ratio_method)
 
     etf_input = st.number_input(
         f"Enter {cfg2['etf']} price",
@@ -386,7 +475,9 @@ with conv_col2:
     if ratio2:
         converted_spot = etf_input / ratio2
         st.success(f"**{cfg2['spot_label']} ≈ ${converted_spot:,.4f}**")
-        st.caption(f"Using ratio: {ratio2:.6f}")
+        st.caption(f"Using {ratio_method_label.lower()} ratio: {ratio2:.6f}")
+    else:
+        st.warning("No overlapping data available to compute ratio.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ─── Footer ────────────────────────────────────────────────────────────────────
