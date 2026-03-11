@@ -197,7 +197,7 @@ def fetch_pair_data(etf_ticker, spot_ticker, days=30):
     if merged.empty:
         print("merged empty")
         return pd.DataFrame()
-
+    print(merged.head())
     merged["Ratio"] = merged["ETF_Close"] / merged["Spot_Close"]
     return merged
 
