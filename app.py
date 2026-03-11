@@ -383,7 +383,7 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
         fig.update_xaxes(gridcolor="rgba(255,255,255,0.04)", zeroline=False)
         fig.update_yaxes(gridcolor="rgba(255,255,255,0.04)", zeroline=False)
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         # Stats row
         c1, c2, c3, c4 = st.columns(4)
