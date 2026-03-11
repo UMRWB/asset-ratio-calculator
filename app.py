@@ -168,8 +168,8 @@ def fetch_pair_data(etf_ticker, spot_ticker, days=30):
     end = datetime.now(pytz.timezone("US/Eastern"))
     start = end - timedelta(days=days)
 
-    etf_df = yf.download(etf_ticker, start=start, end=end, interval="1h", progress=False, auto_adjust=True)
-    spot_df = yf.download(spot_ticker, start=start, end=end, interval="1h", progress=False, auto_adjust=True)
+    etf_df = yf.download(etf_ticker, start=start, end=end, interval="1m", progress=False, auto_adjust=True)
+    spot_df = yf.download(spot_ticker, start=start, end=end, interval="1m", progress=False, auto_adjust=True)
     time.sleep(0.5)
 
     st.write(etf_df)
@@ -210,8 +210,8 @@ def get_latest_prices(etf_ticker, spot_ticker):
     """Get the most recent closing prices for both instruments."""
     etf = yf.Ticker(etf_ticker)
     spot = yf.Ticker(spot_ticker)
-    etf_hist = etf.history(period="5d", interval="1h")
-    spot_hist = spot.history(period="5d", interval="1h")
+    etf_hist = etf.history(period="5d", interval="1m")
+    spot_hist = spot.history(period="5d", interval="1m")
     time.sleep(0.5)
 
     if isinstance(etf_hist.columns, pd.MultiIndex):
