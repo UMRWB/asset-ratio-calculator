@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import pytz
+import time
 
 # ─── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -169,6 +170,7 @@ def fetch_pair_data(etf_ticker, spot_ticker, days=30):
 
     etf_df = yf.download(etf_ticker, start=start, end=end, interval="1h", progress=False, auto_adjust=True)
     spot_df = yf.download(spot_ticker, start=start, end=end, interval="1h", progress=False, auto_adjust=True)
+    time.sleep(0.5)
 
     if etf_df.empty or spot_df.empty:
         print("empty")
@@ -207,6 +209,7 @@ def get_latest_prices(etf_ticker, spot_ticker):
     spot = yf.Ticker(spot_ticker)
     etf_hist = etf.history(period="5d", interval="1h")
     spot_hist = spot.history(period="5d", interval="1h")
+    time.sleep(0.5)
 
     if isinstance(etf_hist.columns, pd.MultiIndex):
         etf_hist.columns = etf_hist.columns.get_level_values(0)
