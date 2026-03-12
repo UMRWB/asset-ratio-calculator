@@ -169,9 +169,9 @@ def fetch_pair_data(etf_ticker, spot_ticker, days=30):
     start = end - timedelta(days=days)
 
     etf = yf.Ticker(etf_ticker)
-    time.sleep(0.5)
+    time.sleep(1)
     spot = yf.Ticker(spot_ticker)
-    time.sleep(0.5)
+    time.sleep(1)
     etf_df = etf.history(start=start, end=end, interval="5m")
     spot_df = spot.history(start=start, end=end, interval="5m")
 
@@ -207,9 +207,9 @@ def fetch_pair_data(etf_ticker, spot_ticker, days=30):
 def get_latest_prices(etf_ticker, spot_ticker):
     """Get the most recent closing prices for both instruments."""
     etf = yf.Ticker(etf_ticker)
-    time.sleep(0.5)
+    time.sleep(1)
     spot = yf.Ticker(spot_ticker)
-    time.sleep(0.5)
+    time.sleep(1)
     etf_hist = etf.history(period="5d", interval="5m")
     spot_hist = spot.history(period="5d", interval="5m")
 
