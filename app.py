@@ -161,90 +161,89 @@ PAIRS = {
 }
 
 
-# ─── Data Fetching ─────────────────────────────────────────────────────────────
+# ─── Single Data Fetch (minimise API calls) ───────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_pair_data(etf_ticker, spot_ticker, days=30):
-    """Fetch hourly data for an ETF and its underlying, aligned to overlapping hours."""
-    end = datetime.now(pytz.timezone("US/Eastern"))
-    start = end - timedelta(days=days)
+def fetch_all_pairs():
+    """
+    Fetch 5 trading days of 5m data for ALL pairs in a single cached call.
+    Returns dict: { pair_name: merged_df }
+    merged_df has ETF_Close, Spot_Close, Ratio on overlapping timestamps only.
 
-    etf = yf.Ticker(etf_ticker)
-    time.sleep(1)
-    spot = yf.Ticker(spot_ticker)
-    time.sleep(1)
-    etf_df = etf.history(start=start, end=end, interval="5m")
-    spot_df = spot.history(start=start, end=end, interval="5m")
+    Total yfinance calls: 8 (one .history() per ticker), with 0.5s sleeps.
+    Everything else — cards, charts, converter — reads from this one dataset.
+    """
+    results = {}
 
-    if etf_df.empty or spot_df.empty:
-        return pd.DataFrame()
+    for name, cfg in PAIRS.items():
+        try:
+            etf = yf.Ticker(cfg["etf"])
+            time.sleep(0.5)
+            etf_df = etf.history(period="5d", interval="5m")
+            time.sleep(0.5)
 
-    # Flatten multi-index columns if present
-    if isinstance(etf_df.columns, pd.MultiIndex):
-        etf_df.columns = etf_df.columns.get_level_values(0)
-    if isinstance(spot_df.columns, pd.MultiIndex):
-        spot_df.columns = spot_df.columns.get_level_values(0)
+            spot = yf.Ticker(cfg["spot"])
+            time.sleep(0.5)
+            spot_df = spot.history(period="5d", interval="5m")
+            time.sleep(0.5)
 
-    etf_close = etf_df[["Close"]].rename(columns={"Close": "ETF_Close"})
-    spot_close = spot_df[["Close"]].rename(columns={"Close": "Spot_Close"})
+            if etf_df.empty or spot_df.empty:
+                results[name] = pd.DataFrame()
+                continue
 
-    # Both indexes to UTC-naive for merge
-    if etf_close.index.tz is not None:
-        etf_close.index = etf_close.index.tz_convert("UTC").tz_localize(None)
-    if spot_close.index.tz is not None:
-        spot_close.index = spot_close.index.tz_convert("UTC").tz_localize(None)
+            # Flatten multi-index columns if present
+            if isinstance(etf_df.columns, pd.MultiIndex):
+                etf_df.columns = etf_df.columns.get_level_values(0)
+            if isinstance(spot_df.columns, pd.MultiIndex):
+                spot_df.columns = spot_df.columns.get_level_values(0)
 
-    # Inner join: only keep timestamps where BOTH instruments have data
-    merged = etf_close.join(spot_close, how="inner").dropna()
+            etf_close = etf_df[["Close"]].rename(columns={"Close": "ETF_Close"})
+            spot_close = spot_df[["Close"]].rename(columns={"Close": "Spot_Close"})
 
-    if merged.empty:
-        return pd.DataFrame()
-    
-    merged["Ratio"] = merged["ETF_Close"] / merged["Spot_Close"]
-    return merged
+            # Normalise indexes to UTC-naive for merge
+            if etf_close.index.tz is not None:
+                etf_close.index = etf_close.index.tz_convert("UTC").tz_localize(None)
+            if spot_close.index.tz is not None:
+                spot_close.index = spot_close.index.tz_convert("UTC").tz_localize(None)
 
+            # Inner join: only overlapping timestamps
+            merged = etf_close.join(spot_close, how="inner").dropna()
 
-@st.cache_data(ttl=300, show_spinner=False)
-def get_latest_prices(etf_ticker, spot_ticker):
-    """Get the most recent closing prices for both instruments."""
-    etf = yf.Ticker(etf_ticker)
-    time.sleep(1)
-    spot = yf.Ticker(spot_ticker)
-    time.sleep(1)
-    etf_hist = etf.history(period="5d", interval="5m")
-    spot_hist = spot.history(period="5d", interval="5m")
+            if merged.empty:
+                results[name] = pd.DataFrame()
+                continue
 
-    if isinstance(etf_hist.columns, pd.MultiIndex):
-        etf_hist.columns = etf_hist.columns.get_level_values(0)
-    if isinstance(spot_hist.columns, pd.MultiIndex):
-        spot_hist.columns = spot_hist.columns.get_level_values(0)
+            merged["Ratio"] = merged["ETF_Close"] / merged["Spot_Close"]
+            results[name] = merged
 
-    etf_price = float(etf_hist["Close"].dropna().iloc[-1]) if not etf_hist.empty else None
-    spot_price = float(spot_hist["Close"].dropna().iloc[-1]) if not spot_hist.empty else None
-    return etf_price, spot_price
+        except Exception as e:
+            st.warning(f"Error fetching {name}: {e}")
+            results[name] = pd.DataFrame()
+
+    return results
 
 
 # ─── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="header-title">ETF / Spot Ratio Dashboard</div>', unsafe_allow_html=True)
-st.markdown('<div class="header-sub">Live conversion ratios between ETFs and their underlying spot prices. Only overlapping market hours are used.</div>', unsafe_allow_html=True)
+st.markdown('<div class="header-sub">Live conversion ratios between ETFs and their underlying spot prices · Past 5 trading days · Overlapping hours only</div>', unsafe_allow_html=True)
 
-# ─── Load Data ─────────────────────────────────────────────────────────────────
+# ─── Load Data (single cached call) ───────────────────────────────────────────
 with st.spinner("Fetching market data..."):
-    all_data = {}
-    latest = {}
-    for name, cfg in PAIRS.items():
-        all_data[name] = fetch_pair_data(cfg["etf"], cfg["spot"])
-        latest[name] = get_latest_prices(cfg["etf"], cfg["spot"])
+    all_data = fetch_all_pairs()
 
 # ─── Ratio Cards ───────────────────────────────────────────────────────────────
 cols = st.columns(4, gap="medium")
 for i, (name, cfg) in enumerate(PAIRS.items()):
-    etf_price, spot_price = latest[name]
     df = all_data[name]
-    current_ratio = etf_price / spot_price if (etf_price and spot_price) else None
-    avg_ratio = float(df["Ratio"].mean()) if not df.empty else None
+    if not df.empty:
+        latest_ratio = float(df["Ratio"].iloc[-1])
+        etf_price = float(df["ETF_Close"].iloc[-1])
+        spot_price = float(df["Spot_Close"].iloc[-1])
+        avg_ratio = float(df["Ratio"].mean())
+    else:
+        latest_ratio = etf_price = spot_price = avg_ratio = None
 
     with cols[i]:
-        ratio_display = f"{current_ratio:.6f}" if current_ratio else "N/A"
+        ratio_display = f"{latest_ratio:.6f}" if latest_ratio else "N/A"
         etf_display = f"${etf_price:,.2f}" if etf_price else "N/A"
         spot_display = f"${spot_price:,.2f}" if spot_price else "N/A"
         avg_display = f"Avg: {avg_ratio:.6f}" if avg_ratio else ""
@@ -264,23 +263,20 @@ for i, (name, cfg) in enumerate(PAIRS.items()):
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ─── Charts ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">📈 Ratio History (Overlapping Hours Only)</div>', unsafe_allow_html=True)
-
-period_options = {"7 Days": 7, "14 Days": 14, "30 Days": 30}
-selected_period = st.radio("Lookback", list(period_options.keys()), horizontal=True, index=2, label_visibility="collapsed")
-days = period_options[selected_period]
+st.markdown('<div class="section-title">📈 Ratio History — Past 5 Trading Days (Overlapping Hours Only)</div>', unsafe_allow_html=True)
 
 tab_names = list(PAIRS.keys())
 tabs = st.tabs(tab_names)
 
 for idx, (name, cfg) in enumerate(PAIRS.items()):
     with tabs[idx]:
-        df = fetch_pair_data(cfg["etf"], cfg["spot"], days=days)
+        df = all_data[name]
         if df.empty:
             st.warning(f"No overlapping data found for {name}.")
             continue
 
         # ── Normalize prices to % change from first data point ──
+        df = df.copy()
         etf_base = df["ETF_Close"].iloc[0]
         spot_base = df["Spot_Close"].iloc[0]
         df["ETF_Pct"] = (df["ETF_Close"] / etf_base - 1) * 100
@@ -297,7 +293,7 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
             ]
         )
 
-        # ── Price chart: plot % change, but show original $ on hover ──
+        # ── Price chart: plot % change, show original $ on hover ──
         fig.add_trace(go.Scatter(
             x=df.index, y=df["ETF_Pct"],
             name=cfg["etf"],
@@ -330,15 +326,15 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
             x=df.index, y=df["Ratio"],
             name="Ratio",
             line=dict(color=cfg["color"], width=2),
-            fill="tonexty" if False else None,  # no fill
             hovertemplate="%{x}<br>Ratio: %{y:.6f}<extra></extra>"
         ), row=2, col=1)
 
-        # Mean, min, max ratio lines
+        # Stats from the 5-day dataset
         mean_ratio = df["Ratio"].mean()
         ratio_min = df["Ratio"].min()
         ratio_max = df["Ratio"].max()
 
+        # Mean line on ratio chart
         fig.add_hline(y=mean_ratio, line_dash="dash", line_color="#4b5563",
                       annotation_text=f"Mean: {mean_ratio:.6f}",
                       annotation_font_color="#6b7280",
@@ -352,7 +348,7 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
             row=2, col=1
         )
 
-        # Add a subtle shaded band between min and max on ratio chart
+        # Subtle shaded band between min and max on ratio chart
         fig.add_trace(go.Scatter(
             x=df.index, y=[ratio_max] * len(df),
             mode="lines", line=dict(width=0),
@@ -365,7 +361,7 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
             showlegend=False, hoverinfo="skip"
         ), row=2, col=1)
 
-        # Y-axis label for % chart
+        # Y-axis labels
         fig.update_yaxes(title_text="% Change", row=1, col=1)
         fig.update_yaxes(title_text="Ratio", row=2, col=1)
 
@@ -383,7 +379,7 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
         fig.update_xaxes(gridcolor="rgba(255,255,255,0.04)", zeroline=False)
         fig.update_yaxes(gridcolor="rgba(255,255,255,0.04)", zeroline=False)
 
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
 
         # Stats row
         c1, c2, c3, c4 = st.columns(4)
@@ -400,9 +396,9 @@ st.caption("Convert between ETF and spot prices using your chosen ratio method."
 # ── Ratio method selector (shared across both converters) ──
 RATIO_METHODS = {
     "Latest (overlapping)": "latest",
-    "Mean": "mean",
-    "Min": "min",
-    "Max": "max",
+    "Mean (5d)": "mean",
+    "Min (5d)": "min",
+    "Max (5d)": "max",
 }
 
 ratio_method_label = st.radio(
@@ -411,13 +407,13 @@ ratio_method_label = st.radio(
     horizontal=True,
     index=0,
     help="**Latest (overlapping)**: last ratio when both ETF & spot were open simultaneously. "
-         "**Mean/Min/Max**: statistics over the selected lookback period."
+         "**Mean/Min/Max**: statistics over the past 5 trading days of overlapping data."
 )
 ratio_method = RATIO_METHODS[ratio_method_label]
 
 
 def get_ratio_for_pair(pair_name, method):
-    """Return the ratio for a pair based on the chosen method, using overlapping data only."""
+    """Return the ratio for a pair based on the chosen method."""
     df = all_data[pair_name]
     if df.empty:
         return None
@@ -439,13 +435,16 @@ with conv_col1:
     st.markdown("**Spot → ETF**")
     pair_choice_1 = st.selectbox("Pair", list(PAIRS.keys()), key="conv1_pair", label_visibility="collapsed")
     cfg1 = PAIRS[pair_choice_1]
-    etf_p1, spot_p1 = latest[pair_choice_1]
     ratio1 = get_ratio_for_pair(pair_choice_1, ratio_method)
+
+    # Pre-fill with latest spot price from overlapping dataset
+    df1 = all_data[pair_choice_1]
+    default_spot = float(df1["Spot_Close"].iloc[-1]) if not df1.empty else 0.0
 
     spot_input = st.number_input(
         f"Enter {cfg1['spot_label']} price",
         min_value=0.0,
-        value=float(spot_p1) if spot_p1 else 0.0,
+        value=default_spot,
         format="%.4f",
         key="spot_input"
     )
@@ -462,13 +461,16 @@ with conv_col2:
     st.markdown("**ETF → Spot**")
     pair_choice_2 = st.selectbox("Pair", list(PAIRS.keys()), key="conv2_pair", label_visibility="collapsed")
     cfg2 = PAIRS[pair_choice_2]
-    etf_p2, spot_p2 = latest[pair_choice_2]
     ratio2 = get_ratio_for_pair(pair_choice_2, ratio_method)
+
+    # Pre-fill with latest ETF price from overlapping dataset
+    df2 = all_data[pair_choice_2]
+    default_etf = float(df2["ETF_Close"].iloc[-1]) if not df2.empty else 0.0
 
     etf_input = st.number_input(
         f"Enter {cfg2['etf']} price",
         min_value=0.0,
-        value=float(etf_p2) if etf_p2 else 0.0,
+        value=default_etf,
         format="%.4f",
         key="etf_input"
     )
@@ -484,8 +486,8 @@ with conv_col2:
 st.markdown("<br>", unsafe_allow_html=True)
 st.markdown("""
 <div style="text-align:center; color:#4b5563; font-size:0.75rem; padding:1rem 0;">
-    Data via Yahoo Finance. Ratios computed on overlapping market hours only.<br>
-    Gold/Silver spot proxied by front-month futures (GC=F, SI=F). Crypto spot via BTC-USD, ETH-USD.<br>
-    Prices refresh every 5 minutes. Not financial advice.
+    Data via Yahoo Finance · Past 5 trading days · Ratios computed on overlapping market hours only<br>
+    Gold/Silver spot proxied by front-month futures (GC=F, SI=F) · Crypto spot via BTC-USD, ETH-USD<br>
+    Cached for 5 minutes · Not financial advice
 </div>
 """, unsafe_allow_html=True)
