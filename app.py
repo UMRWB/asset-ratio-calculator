@@ -215,7 +215,7 @@ def fetch_all_pairs():
 
             merged["Ratio"] = merged["ETF_Close"] / merged["Spot_Close"]
             # Keep only the last 100 overlapping data points
-            merged = merged.tail(100)
+            merged = merged.tail(1000)
             results[name] = merged
 
         except Exception as e:
