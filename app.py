@@ -166,7 +166,7 @@ PAIRS = {
 def fetch_all_pairs():
     """
     Fetch 30 days of 5m data for ALL pairs in a single cached call.
-    After merging to overlapping timestamps, keeps only the last 100 rows.
+    After merging to overlapping timestamps, keeps only the last 1000 rows.
     Returns dict: { pair_name: merged_df }
     merged_df has ETF_Close, Spot_Close, Ratio.
 
@@ -266,7 +266,7 @@ for i, (name, cfg) in enumerate(PAIRS.items()):
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ─── Charts ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">📈 Ratio History — Last 100 Data Points (Overlapping Hours Only)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📈 Ratio History — Last 1000 Data Points (Overlapping Hours Only)</div>', unsafe_allow_html=True)
 
 tab_names = list(PAIRS.keys())
 tabs = st.tabs(tab_names)
@@ -410,7 +410,7 @@ ratio_method_label = st.radio(
     horizontal=True,
     index=0,
     help="**Latest (overlapping)**: last ratio when both ETF & spot were open simultaneously. "
-         "**Mean/Min/Max**: statistics over the last 100 overlapping data points."
+         "**Mean/Min/Max**: statistics over the last 1000 overlapping data points."
 )
 ratio_method = RATIO_METHODS[ratio_method_label]
 
