@@ -165,9 +165,10 @@ PAIRS = {
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_all_pairs():
     """
-    Fetch 5 trading days of 5m data for ALL pairs in a single cached call.
+    Fetch 30 days of 5m data for ALL pairs in a single cached call.
+    After merging to overlapping timestamps, keeps only the last 100 rows.
     Returns dict: { pair_name: merged_df }
-    merged_df has ETF_Close, Spot_Close, Ratio on overlapping timestamps only.
+    merged_df has ETF_Close, Spot_Close, Ratio.
 
     Total yfinance calls: 8 (one .history() per ticker), with 0.5s sleeps.
     Everything else — cards, charts, converter — reads from this one dataset.
@@ -178,12 +179,12 @@ def fetch_all_pairs():
         try:
             etf = yf.Ticker(cfg["etf"])
             time.sleep(0.5)
-            etf_df = etf.history(period="5d", interval="5m")
+            etf_df = etf.history(period="30d", interval="5m")
             time.sleep(0.5)
 
             spot = yf.Ticker(cfg["spot"])
             time.sleep(0.5)
-            spot_df = spot.history(period="5d", interval="5m")
+            spot_df = spot.history(period="30d", interval="5m")
             time.sleep(0.5)
 
             if etf_df.empty or spot_df.empty:
@@ -213,6 +214,8 @@ def fetch_all_pairs():
                 continue
 
             merged["Ratio"] = merged["ETF_Close"] / merged["Spot_Close"]
+            # Keep only the last 100 overlapping data points
+            merged = merged.tail(100)
             results[name] = merged
 
         except Exception as e:
@@ -224,7 +227,7 @@ def fetch_all_pairs():
 
 # ─── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="header-title">ETF / Spot Ratio Dashboard</div>', unsafe_allow_html=True)
-st.markdown('<div class="header-sub">Live conversion ratios between ETFs and their underlying spot prices · Past 5 trading days · Overlapping hours only</div>', unsafe_allow_html=True)
+st.markdown('<div class="header-sub">Live conversion ratios between ETFs and their underlying spot prices · Last 100 overlapping data points · 5-min intervals</div>', unsafe_allow_html=True)
 
 # ─── Load Data (single cached call) ───────────────────────────────────────────
 with st.spinner("Fetching market data..."):
@@ -263,7 +266,7 @@ for i, (name, cfg) in enumerate(PAIRS.items()):
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ─── Charts ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">📈 Ratio History — Past 5 Trading Days (Overlapping Hours Only)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📈 Ratio History — Last 100 Data Points (Overlapping Hours Only)</div>', unsafe_allow_html=True)
 
 tab_names = list(PAIRS.keys())
 tabs = st.tabs(tab_names)
@@ -396,9 +399,9 @@ st.caption("Convert between ETF and spot prices using your chosen ratio method."
 # ── Ratio method selector (shared across both converters) ──
 RATIO_METHODS = {
     "Latest (overlapping)": "latest",
-    "Mean (5d)": "mean",
-    "Min (5d)": "min",
-    "Max (5d)": "max",
+    "Mean": "mean",
+    "Min": "min",
+    "Max": "max",
 }
 
 ratio_method_label = st.radio(
@@ -407,7 +410,7 @@ ratio_method_label = st.radio(
     horizontal=True,
     index=0,
     help="**Latest (overlapping)**: last ratio when both ETF & spot were open simultaneously. "
-         "**Mean/Min/Max**: statistics over the past 5 trading days of overlapping data."
+         "**Mean/Min/Max**: statistics over the last 100 overlapping data points."
 )
 ratio_method = RATIO_METHODS[ratio_method_label]
 
@@ -486,7 +489,7 @@ with conv_col2:
 st.markdown("<br>", unsafe_allow_html=True)
 st.markdown("""
 <div style="text-align:center; color:#4b5563; font-size:0.75rem; padding:1rem 0;">
-    Data via Yahoo Finance · Past 5 trading days · Ratios computed on overlapping market hours only<br>
+    Data via Yahoo Finance · Last 100 overlapping data points from 30-day window · 5-min intervals<br>
     Gold/Silver spot proxied by front-month futures (GC=F, SI=F) · Crypto spot via BTC-USD, ETH-USD<br>
     Cached for 5 minutes · Not financial advice
 </div>
