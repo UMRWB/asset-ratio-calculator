@@ -137,6 +137,7 @@ PAIRS = {
         "accent": "gold",
         "color": "#fbbf24",
         "description": "Gold ETF vs Gold Spot",
+        "inverse": False,
     },
     "GLL / XAUUSD": {
         "etf": "GLL",
@@ -145,6 +146,7 @@ PAIRS = {
         "accent": "gold2",
         "color": "#d97706",
         "description": "UltraShort Gold vs Gold Spot",
+        "inverse": True,
     },
     "SLV / XAGUSD": {
         "etf": "SLV",
@@ -153,6 +155,7 @@ PAIRS = {
         "accent": "silver",
         "color": "#94a3b8",
         "description": "Silver ETF vs Silver Spot",
+        "inverse": False,
     },
     "AGQ / XAGUSD": {
         "etf": "AGQ",
@@ -161,6 +164,7 @@ PAIRS = {
         "accent": "silver2",
         "color": "#64748b",
         "description": "Ultra Silver vs Silver Spot",
+        "inverse": True,
     },
     "IBIT / BTCUSD": {
         "etf": "IBIT",
@@ -169,6 +173,7 @@ PAIRS = {
         "accent": "btc",
         "color": "#f97316",
         "description": "Bitcoin ETF vs Bitcoin Spot",
+        "inverse": False,
     },
     "SBIT / BTCUSD": {
         "etf": "SBIT",
@@ -177,6 +182,7 @@ PAIRS = {
         "accent": "btc2",
         "color": "#ea580c",
         "description": "Short Bitcoin vs Bitcoin Spot",
+        "inverse": True,
     },
     "ETHA / ETHUSD": {
         "etf": "ETHA",
@@ -185,6 +191,7 @@ PAIRS = {
         "accent": "eth",
         "color": "#818cf8",
         "description": "Ethereum ETF vs Ethereum Spot",
+        "inverse": False,
     },
     "ETHD / ETHUSD": {
         "etf": "ETHD",
@@ -193,6 +200,7 @@ PAIRS = {
         "accent": "eth2",
         "color": "#6366f1",
         "description": "Short Ether vs Ether Spot",
+        "inverse": True,
     },
 }
 
@@ -247,7 +255,11 @@ def fetch_all_pairs():
                 results[name] = pd.DataFrame()
                 continue
 
-            merged["Ratio"] = merged["ETF_Close"] / merged["Spot_Close"]
+            # Ratio: ETF/Spot for standard, ETF×Spot for inverse
+            if cfg.get("inverse", False):
+                merged["Ratio"] = merged["ETF_Close"] * merged["Spot_Close"]
+            else:
+                merged["Ratio"] = merged["ETF_Close"] / merged["Spot_Close"]
             # Keep only the last 100 overlapping data points
             merged = merged.tail(100)
             results[name] = merged
@@ -283,16 +295,26 @@ for row_start in range(0, len(pair_list), 4):
             latest_ratio = etf_price = spot_price = avg_ratio = None
 
         with cols[i]:
-            ratio_display = f"{latest_ratio:.6f}" if latest_ratio else "N/A"
+            is_inv = cfg.get("inverse", False)
+            formula = f"{cfg['etf']}×{cfg['spot_label']}" if is_inv else f"{cfg['etf']}/{cfg['spot_label']}"
+            # Smart formatting: large ratios (inverse) use fewer decimals
+            if latest_ratio is not None:
+                ratio_display = f"{latest_ratio:,.2f}" if latest_ratio > 10 else f"{latest_ratio:.6f}"
+            else:
+                ratio_display = "N/A"
             etf_display = f"${etf_price:,.2f}" if etf_price else "N/A"
             spot_display = f"${spot_price:,.2f}" if spot_price else "N/A"
-            avg_display = f"Avg: {avg_ratio:.6f}" if avg_ratio else ""
+            if avg_ratio is not None:
+                avg_display = f"Avg: {avg_ratio:,.2f}" if avg_ratio > 10 else f"Avg: {avg_ratio:.6f}"
+            else:
+                avg_display = ""
 
             st.markdown(f"""
             <div class="ratio-card accent-{cfg['accent']}">
                 <div class="card-label accent-{cfg['accent']}">{cfg['description']}</div>
                 <div class="card-ratio">{ratio_display}</div>
                 <div class="card-prices">
+                    <span style="color:#4b5563; font-size:0.7rem;">{formula}</span><br>
                     {cfg['etf']}: {etf_display}<br>
                     {cfg['spot_label']}: {spot_display}<br>
                     <span style="color:#4b5563;">{avg_display}</span>
@@ -324,6 +346,9 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
         df["ETF_Pct"] = (df["ETF_Close"] / etf_base - 1) * 100
         df["Spot_Pct"] = (df["Spot_Close"] / spot_base - 1) * 100
 
+        ratio_formula = f"{cfg['etf']} × {cfg['spot_label']}" if cfg.get("inverse") else f"{cfg['etf']} / {cfg['spot_label']}"
+        is_inverse = cfg.get("inverse", False)
+
         fig = make_subplots(
             rows=2, cols=1,
             shared_xaxes=True,
@@ -331,7 +356,7 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
             row_heights=[0.50, 0.50],
             subplot_titles=[
                 f"{cfg['etf']} vs {cfg['spot_label']} — Normalized % Change",
-                "Conversion Ratio (Zoomed)"
+                f"Conversion Ratio: {ratio_formula} (Zoomed)"
             ]
         )
 
@@ -364,11 +389,12 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
         fig.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.15)", row=1, col=1)
 
         # ── Ratio chart: zoomed in, no fill-to-zero ──
+        ratio_hover_fmt = "%{x}<br>Ratio: %{y:,.2f}<extra></extra>" if is_inverse else "%{x}<br>Ratio: %{y:.6f}<extra></extra>"
         fig.add_trace(go.Scatter(
             x=df.index, y=df["Ratio"],
             name="Ratio",
             line=dict(color=cfg["color"], width=2),
-            hovertemplate="%{x}<br>Ratio: %{y:.6f}<extra></extra>"
+            hovertemplate=ratio_hover_fmt
         ), row=2, col=1)
 
         # Stats from the 5-day dataset
@@ -377,8 +403,9 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
         ratio_max = df["Ratio"].max()
 
         # Mean line on ratio chart
+        mean_label = f"Mean: {mean_ratio:,.2f}" if mean_ratio > 10 else f"Mean: {mean_ratio:.6f}"
         fig.add_hline(y=mean_ratio, line_dash="dash", line_color="#4b5563",
-                      annotation_text=f"Mean: {mean_ratio:.6f}",
+                      annotation_text=mean_label,
                       annotation_font_color="#6b7280",
                       annotation_font_size=10, row=2, col=1)
 
@@ -424,11 +451,13 @@ for idx, (name, cfg) in enumerate(PAIRS.items()):
         st.plotly_chart(fig, use_container_width=True)
 
         # Stats row
+        def fmt_ratio(v):
+            return f"{v:,.2f}" if v > 10 else f"{v:.6f}"
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Latest Ratio", f"{df['Ratio'].iloc[-1]:.6f}")
-        c2.metric("Mean", f"{mean_ratio:.6f}")
-        c3.metric("Min", f"{ratio_min:.6f}")
-        c4.metric("Max", f"{ratio_max:.6f}")
+        c1.metric("Latest Ratio", fmt_ratio(df['Ratio'].iloc[-1]))
+        c2.metric("Mean", fmt_ratio(mean_ratio))
+        c3.metric("Min", fmt_ratio(ratio_min))
+        c4.metric("Max", fmt_ratio(ratio_max))
 
 # ─── Converter ─────────────────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
@@ -449,7 +478,8 @@ ratio_method_label = st.radio(
     horizontal=True,
     index=0,
     help="**Latest (overlapping)**: last ratio when both ETF & spot were open simultaneously. "
-         "**Mean/Min/Max**: statistics over the last 100 overlapping data points."
+         "**Mean/Min/Max**: statistics over the last 100 overlapping data points. "
+         "Standard pairs use ETF/Spot; inverse pairs (GLL, AGQ, SBIT, ETHD) use ETF×Spot."
 )
 ratio_method = RATIO_METHODS[ratio_method_label]
 
@@ -491,9 +521,18 @@ with conv_col1:
         key="spot_input"
     )
     if ratio1:
-        converted_etf = spot_input * ratio1
+        is_inv_1 = cfg1.get("inverse", False)
+        if is_inv_1:
+            # Inverse: ratio = ETF × Spot → ETF = ratio / Spot
+            converted_etf = ratio1 / spot_input if spot_input > 0 else 0
+            formula_label = f"{cfg1['etf']} × {cfg1['spot_label']}"
+        else:
+            # Standard: ratio = ETF / Spot → ETF = ratio × Spot
+            converted_etf = spot_input * ratio1
+            formula_label = f"{cfg1['etf']} / {cfg1['spot_label']}"
         st.success(f"**{cfg1['etf']} ≈ ${converted_etf:,.4f}**")
-        st.caption(f"Using {ratio_method_label.lower()} ratio: {ratio1:.6f}")
+        ratio_fmt = f"{ratio1:,.2f}" if ratio1 > 10 else f"{ratio1:.6f}"
+        st.caption(f"Using {ratio_method_label.lower()} ratio ({formula_label}): {ratio_fmt}")
     else:
         st.warning("No overlapping data available to compute ratio.")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -517,9 +556,18 @@ with conv_col2:
         key="etf_input"
     )
     if ratio2:
-        converted_spot = etf_input / ratio2
+        is_inv_2 = cfg2.get("inverse", False)
+        if is_inv_2:
+            # Inverse: ratio = ETF × Spot → Spot = ratio / ETF
+            converted_spot = ratio2 / etf_input if etf_input > 0 else 0
+            formula_label = f"{cfg2['etf']} × {cfg2['spot_label']}"
+        else:
+            # Standard: ratio = ETF / Spot → Spot = ETF / ratio
+            converted_spot = etf_input / ratio2
+            formula_label = f"{cfg2['etf']} / {cfg2['spot_label']}"
         st.success(f"**{cfg2['spot_label']} ≈ ${converted_spot:,.4f}**")
-        st.caption(f"Using {ratio_method_label.lower()} ratio: {ratio2:.6f}")
+        ratio_fmt = f"{ratio2:,.2f}" if ratio2 > 10 else f"{ratio2:.6f}"
+        st.caption(f"Using {ratio_method_label.lower()} ratio ({formula_label}): {ratio_fmt}")
     else:
         st.warning("No overlapping data available to compute ratio.")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -530,6 +578,7 @@ st.markdown("""
 <div style="text-align:center; color:#4b5563; font-size:0.75rem; padding:1rem 0;">
     Data via Yahoo Finance · Last 100 overlapping data points from 30-day window · 5-min intervals<br>
     Gold/Silver spot proxied by front-month futures (GC=F, SI=F) · Crypto spot via BTC-USD, ETH-USD<br>
+    Inverse ETFs (GLL, AGQ, SBIT, ETHD) use ETF×Spot ratio · Standard ETFs use ETF/Spot ratio<br>
     Cached for 5 minutes · Not financial advice
 </div>
 """, unsafe_allow_html=True)
