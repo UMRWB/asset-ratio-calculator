@@ -82,9 +82,13 @@ html, body, [class*="css"] {
 
 /* Color accents per pair */
 .accent-gold { color: #fbbf24; border-color: rgba(251,191,36,0.3); }
+.accent-gold2 { color: #d97706; border-color: rgba(217,119,6,0.3); }
 .accent-silver { color: #94a3b8; border-color: rgba(148,163,184,0.3); }
+.accent-silver2 { color: #64748b; border-color: rgba(100,116,139,0.3); }
 .accent-btc { color: #f97316; border-color: rgba(249,115,22,0.3); }
+.accent-btc2 { color: #ea580c; border-color: rgba(234,88,12,0.3); }
 .accent-eth { color: #818cf8; border-color: rgba(129,140,248,0.3); }
+.accent-eth2 { color: #6366f1; border-color: rgba(99,102,241,0.3); }
 
 /* Converter section */
 .converter-box {
@@ -134,6 +138,14 @@ PAIRS = {
         "color": "#fbbf24",
         "description": "Gold ETF vs Gold Spot",
     },
+    "GLL / XAUUSD": {
+        "etf": "GLL",
+        "spot": "GC=F",
+        "spot_label": "XAUUSD",
+        "accent": "gold2",
+        "color": "#d97706",
+        "description": "UltraShort Gold vs Gold Spot",
+    },
     "SLV / XAGUSD": {
         "etf": "SLV",
         "spot": "SI=F",
@@ -141,6 +153,14 @@ PAIRS = {
         "accent": "silver",
         "color": "#94a3b8",
         "description": "Silver ETF vs Silver Spot",
+    },
+    "AGQ / XAGUSD": {
+        "etf": "AGQ",
+        "spot": "SI=F",
+        "spot_label": "XAGUSD",
+        "accent": "silver2",
+        "color": "#64748b",
+        "description": "Ultra Silver vs Silver Spot",
     },
     "IBIT / BTCUSD": {
         "etf": "IBIT",
@@ -150,6 +170,14 @@ PAIRS = {
         "color": "#f97316",
         "description": "Bitcoin ETF vs Bitcoin Spot",
     },
+    "SBIT / BTCUSD": {
+        "etf": "SBIT",
+        "spot": "BTC-USD",
+        "spot_label": "BTCUSD",
+        "accent": "btc2",
+        "color": "#ea580c",
+        "description": "Short Bitcoin vs Bitcoin Spot",
+    },
     "ETHA / ETHUSD": {
         "etf": "ETHA",
         "spot": "ETH-USD",
@@ -157,6 +185,14 @@ PAIRS = {
         "accent": "eth",
         "color": "#818cf8",
         "description": "Ethereum ETF vs Ethereum Spot",
+    },
+    "ETHD / ETHUSD": {
+        "etf": "ETHD",
+        "spot": "ETH-USD",
+        "spot_label": "ETHUSD",
+        "accent": "eth2",
+        "color": "#6366f1",
+        "description": "Short Ether vs Ether Spot",
     },
 }
 
@@ -166,45 +202,43 @@ PAIRS = {
 def fetch_all_pairs():
     """
     Fetch 30 days of 5m data for ALL pairs in a single cached call.
-    After merging to overlapping timestamps, keeps only the last 1000 rows.
-    Returns dict: { pair_name: merged_df }
-    merged_df has ETF_Close, Spot_Close, Ratio.
+    Spot tickers shared across pairs (e.g. GC=F for GLD & GLL) are fetched
+    only once and reused, saving API calls.
+    After merging to overlapping timestamps, keeps only the last 100 rows.
 
-    Total yfinance calls: 8 (one .history() per ticker), with 0.5s sleeps.
-    Everything else — cards, charts, converter — reads from this one dataset.
+    Total yfinance calls: 12 (8 unique ETFs + 4 unique spots), with 0.5s sleeps.
     """
     results = {}
+    spot_cache = {}  # { ticker_str: DataFrame } — avoids re-fetching shared spots
+
+    def fetch_ticker(ticker_str):
+        """Fetch a single ticker's 30d/5m history."""
+        t = yf.Ticker(ticker_str)
+        time.sleep(0.5)
+        df = t.history(period="30d", interval="5m")
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        if not df.empty and df.index.tz is not None:
+            df.index = df.index.tz_convert("UTC").tz_localize(None)
+        return df
 
     for name, cfg in PAIRS.items():
         try:
-            etf = yf.Ticker(cfg["etf"])
-            time.sleep(0.5)
-            etf_df = etf.history(period="30d", interval="5m")
-            time.sleep(0.5)
+            # Fetch ETF (always unique per pair)
+            etf_df = fetch_ticker(cfg["etf"])
 
-            spot = yf.Ticker(cfg["spot"])
-            time.sleep(0.5)
-            spot_df = spot.history(period="30d", interval="5m")
-            time.sleep(0.5)
+            # Fetch spot — reuse if already downloaded
+            spot_ticker = cfg["spot"]
+            if spot_ticker not in spot_cache:
+                spot_cache[spot_ticker] = fetch_ticker(spot_ticker)
+            spot_df = spot_cache[spot_ticker]
 
             if etf_df.empty or spot_df.empty:
                 results[name] = pd.DataFrame()
                 continue
 
-            # Flatten multi-index columns if present
-            if isinstance(etf_df.columns, pd.MultiIndex):
-                etf_df.columns = etf_df.columns.get_level_values(0)
-            if isinstance(spot_df.columns, pd.MultiIndex):
-                spot_df.columns = spot_df.columns.get_level_values(0)
-
             etf_close = etf_df[["Close"]].rename(columns={"Close": "ETF_Close"})
             spot_close = spot_df[["Close"]].rename(columns={"Close": "Spot_Close"})
-
-            # Normalise indexes to UTC-naive for merge
-            if etf_close.index.tz is not None:
-                etf_close.index = etf_close.index.tz_convert("UTC").tz_localize(None)
-            if spot_close.index.tz is not None:
-                spot_close.index = spot_close.index.tz_convert("UTC").tz_localize(None)
 
             # Inner join: only overlapping timestamps
             merged = etf_close.join(spot_close, how="inner").dropna()
@@ -215,7 +249,7 @@ def fetch_all_pairs():
 
             merged["Ratio"] = merged["ETF_Close"] / merged["Spot_Close"]
             # Keep only the last 100 overlapping data points
-            merged = merged.tail(1000)
+            merged = merged.tail(100)
             results[name] = merged
 
         except Exception as e:
@@ -234,39 +268,44 @@ with st.spinner("Fetching market data..."):
     all_data = fetch_all_pairs()
 
 # ─── Ratio Cards ───────────────────────────────────────────────────────────────
-cols = st.columns(4, gap="medium")
-for i, (name, cfg) in enumerate(PAIRS.items()):
-    df = all_data[name]
-    if not df.empty:
-        latest_ratio = float(df["Ratio"].iloc[-1])
-        etf_price = float(df["ETF_Close"].iloc[-1])
-        spot_price = float(df["Spot_Close"].iloc[-1])
-        avg_ratio = float(df["Ratio"].mean())
-    else:
-        latest_ratio = etf_price = spot_price = avg_ratio = None
+pair_list = list(PAIRS.items())
+for row_start in range(0, len(pair_list), 4):
+    row_pairs = pair_list[row_start:row_start + 4]
+    cols = st.columns(len(row_pairs), gap="medium")
+    for i, (name, cfg) in enumerate(row_pairs):
+        df = all_data[name]
+        if not df.empty:
+            latest_ratio = float(df["Ratio"].iloc[-1])
+            etf_price = float(df["ETF_Close"].iloc[-1])
+            spot_price = float(df["Spot_Close"].iloc[-1])
+            avg_ratio = float(df["Ratio"].mean())
+        else:
+            latest_ratio = etf_price = spot_price = avg_ratio = None
 
-    with cols[i]:
-        ratio_display = f"{latest_ratio:.6f}" if latest_ratio else "N/A"
-        etf_display = f"${etf_price:,.2f}" if etf_price else "N/A"
-        spot_display = f"${spot_price:,.2f}" if spot_price else "N/A"
-        avg_display = f"Avg: {avg_ratio:.6f}" if avg_ratio else ""
+        with cols[i]:
+            ratio_display = f"{latest_ratio:.6f}" if latest_ratio else "N/A"
+            etf_display = f"${etf_price:,.2f}" if etf_price else "N/A"
+            spot_display = f"${spot_price:,.2f}" if spot_price else "N/A"
+            avg_display = f"Avg: {avg_ratio:.6f}" if avg_ratio else ""
 
-        st.markdown(f"""
-        <div class="ratio-card accent-{cfg['accent']}">
-            <div class="card-label accent-{cfg['accent']}">{cfg['description']}</div>
-            <div class="card-ratio">{ratio_display}</div>
-            <div class="card-prices">
-                {cfg['etf']}: {etf_display}<br>
-                {cfg['spot_label']}: {spot_display}<br>
-                <span style="color:#4b5563;">{avg_display}</span>
+            st.markdown(f"""
+            <div class="ratio-card accent-{cfg['accent']}">
+                <div class="card-label accent-{cfg['accent']}">{cfg['description']}</div>
+                <div class="card-ratio">{ratio_display}</div>
+                <div class="card-prices">
+                    {cfg['etf']}: {etf_display}<br>
+                    {cfg['spot_label']}: {spot_display}<br>
+                    <span style="color:#4b5563;">{avg_display}</span>
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+    if row_start == 0:
+        st.markdown("<div style='margin-top:0.8rem'></div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ─── Charts ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">📈 Ratio History — Last 1000 Data Points (Overlapping Hours Only)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📈 Ratio History — Last 100 Data Points (Overlapping Hours Only)</div>', unsafe_allow_html=True)
 
 tab_names = list(PAIRS.keys())
 tabs = st.tabs(tab_names)
@@ -410,7 +449,7 @@ ratio_method_label = st.radio(
     horizontal=True,
     index=0,
     help="**Latest (overlapping)**: last ratio when both ETF & spot were open simultaneously. "
-         "**Mean/Min/Max**: statistics over the last 1000 overlapping data points."
+         "**Mean/Min/Max**: statistics over the last 100 overlapping data points."
 )
 ratio_method = RATIO_METHODS[ratio_method_label]
 
